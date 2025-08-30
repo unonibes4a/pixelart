@@ -1,0 +1,863 @@
+
+    <!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GioPixelart  , resize and  brush sculpt </title>
+ 
+    <style>
+       #contenidapp{
+        width: 100%;
+        height: 100%;
+       }
+    </style>
+</head>
+<body> 
+
+    <div  id="contenidapp"></div>
+
+ <script>
+
+class GioPixelartGenerator {
+    constructor(parentDiv) {
+        this.img=new Image();
+        this.inicss();
+        this.inihtmlpixelart(parentDiv);
+        this.gioPixelartCanvas = document.getElementById('gioPixelart-canvas');
+        this.gioPixelartCtx = this.gioPixelartCanvas.getContext('2d');
+        this.gioPixelartCanvas2 = document.getElementById('gioPixelart-canvas2');
+        this.gioPixelartCtx2 = this.gioPixelartCanvas2.getContext('2d');
+
+        this.gioPixelartImageInput = document.getElementById('gioPixelart-imageInput');
+        this.gioPixelartFolderInput = document.getElementById('gioPixelart-folderInput');
+        this.gioPixelartPixelSizeSlider = document.getElementById('gioPixelart-pixelSize');
+        this.gioPixelartPixelSizeValue = document.getElementById('gioPixelart-pixelSizeValue');
+        this.gioPixelartColorReductionSlider = document.getElementById('gioPixelart-colorReduction');
+        this.gioPixelartColorReductionValue = document.getElementById('gioPixelart-colorReductionValue');
+        this.gioPixelartGrayscaleBtn = document.getElementById('gioPixelart-grayscaleBtn');
+        this.gioPixelartProcessAllBtn = document.getElementById('gioPixelart-processAllBtn');
+        this.gioPixelartDropZone = document.getElementById('gioPixelart-dropZone');
+        this.gioPixelartSelectedFileNameDisplay = document.getElementById('gioPixelart-selectedFileName');
+        this.gioPixelartSelectedFolderNameDisplay = document.getElementById('gioPixelart-selectedFolderName');
+        this.gioPixelartImageResolutionInput = document.getElementById('gioPixelart-imageResolution');
+        this.gioPixelartBaseFileNameInput = document.getElementById('gioPixelart-baseFileName');
+        this.gioPixelartApplyResolutionBtn = document.getElementById('gioPixelart-applyResolutionBtn');
+        this.gioPixelartProgressContainer = document.getElementById('gioPixelart-progressContainer');
+        this.gioPixelartProgressFill = document.getElementById('gioPixelart-progressFill');
+        this.gioPixelartProgressText = document.getElementById('gioPixelart-progressText');
+        
+        this.gioPixelartOriginalImage = new Image();
+        this.gioPixelartProcessedImage = new Image();
+        this.gioPixelartOriginalImageData;
+        this.gioPixelartIsGrayscale = false;
+        this.gioPixelartSelectedFiles = [];
+
+        this.addEventListeners();
+    }
+
+    addEventListeners() {
+        this.gioPixelartImageInput.addEventListener('change', (e) => this.gioPixelartHandleImageUpload(e));
+        this.gioPixelartFolderInput.addEventListener('change', (e) => this.gioPixelartHandleFolderUpload(e));
+        this.gioPixelartPixelSizeSlider.addEventListener('input', () => this.gioPixelartUpdateEffect());
+        this.gioPixelartColorReductionSlider.addEventListener('input', () => this.gioPixelartUpdateEffect());
+        this.gioPixelartGrayscaleBtn.addEventListener('click', () => this.gioPixelartToggleGrayscale());
+        this.gioPixelartProcessAllBtn.addEventListener('click', () => this.gioPixelartProcessAllImages());
+        this.gioPixelartApplyResolutionBtn.addEventListener('click', () => this.gioPixelartApplyResolution());
+
+        document.addEventListener('paste', (e) => this.gioPixelartHandlePaste(e));
+        this.gioPixelartDropZone.addEventListener('dragover', (e) => this.gioPixelartHandleDragOver(e));
+        this.gioPixelartDropZone.addEventListener('dragleave', (e) => this.gioPixelartHandleDragLeave(e));
+        this.gioPixelartDropZone.addEventListener('drop', (e) => this.gioPixelartHandleDrop(e));
+        document.addEventListener('dragover', (e) => e.preventDefault());
+        document.addEventListener('drop', (e) => this.gioPixelartHandleWindowDrop(e));
+    }
+
+    gioPixelartHandleFolderUpload(e) {
+        const files = Array.from(e.target.files).filter(file => 
+            file.type.startsWith('image/') && 
+            /\.(jpg|jpeg|png|gif|bmp|webp|tiff)$/i.test(file.name)
+        );
+        
+        if (files.length > 0) {
+            this.gioPixelartSelectedFiles = files;
+            this.gioPixelartSelectedFolderNameDisplay.textContent = `${files.length} imágenes seleccionadas`;
+        } else {
+            this.gioPixelartSelectedFiles = [];
+            this.gioPixelartSelectedFolderNameDisplay.textContent = "No se encontraron imágenes";
+        }
+    }
+
+    async gioPixelartProcessAllImages() {
+        if (this.gioPixelartSelectedFiles.length === 0) {
+            alert('Selecciona una carpeta con imágenes primero');
+            return;
+        }
+
+        const baseName = this.gioPixelartBaseFileNameInput.value.trim() || 'processed_image';
+        const resolution = parseInt(this.gioPixelartImageResolutionInput.value) || 512;
+        
+        this.gioPixelartProgressContainer.style.display = 'block';
+        this.gioPixelartProgressFill.style.width = '0%';
+        
+        for (let i = 0; i < this.gioPixelartSelectedFiles.length; i++) {
+            const file = this.gioPixelartSelectedFiles[i];
+            const fileName = i === 0 ? baseName : `${baseName}_${i}`;
+            
+            this.gioPixelartProgressText.textContent = `${i + 1} / ${this.gioPixelartSelectedFiles.length}`;
+            this.gioPixelartProgressFill.style.width = `${((i + 1) / this.gioPixelartSelectedFiles.length) * 100}%`;
+            
+            await this.gioPixelartProcessSingleImage(file, fileName, resolution);
+            
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        this.gioPixelartProgressContainer.style.display = 'none';
+        alert('Procesamiento completado');
+    }
+
+    async gioPixelartProcessSingleImage(file, fileName, resolution) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            const reader = new FileReader();
+            
+            reader.onload = (event) => {
+                img.onload = () => {
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    tempCanvas.width = resolution;
+                    tempCanvas.height = resolution;
+                    tempCtx.drawImage(img, 0, 0, resolution, resolution);
+                    
+                    const pixelatedCanvas = this.gioPixelartCreatePixelatedImage(tempCanvas);
+                    
+                    pixelatedCanvas.toBlob((blob) => {
+                        this.gioPixelartDownloadImage(blob, `${fileName}.png`);
+                        tempCanvas.remove();
+                        pixelatedCanvas.remove();
+                        img.src = '';
+                        resolve();
+                    }, 'image/png');
+                };
+                img.src = event.target.result;
+            };
+            
+            reader.readAsDataURL(file);
+        });
+    }
+
+    gioPixelartCreatePixelatedImage(sourceCanvas) {
+        const pixelatedCanvas = document.createElement('canvas');
+        const pixelatedCtx = pixelatedCanvas.getContext('2d');
+        
+        pixelatedCanvas.width = sourceCanvas.width;
+        pixelatedCanvas.height = sourceCanvas.height;
+        
+        pixelatedCtx.drawImage(sourceCanvas, 0, 0);
+        
+        const pixelSize = parseInt(this.gioPixelartPixelSizeSlider.value);
+        const colorReduction = parseInt(this.gioPixelartColorReductionSlider.value);
+        const width = pixelatedCanvas.width;
+        const height = pixelatedCanvas.height;
+        
+        const imageData = pixelatedCtx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+
+        for (let y = 0; y < height; y += pixelSize) {
+            for (let x = 0; x < width; x += pixelSize) {
+                const pixelColor = this.gioPixelartGetAverageColor(data, x, y, pixelSize, width, height);
+                const reducedColor = this.gioPixelartReduceColor(pixelColor, colorReduction);
+                this.gioPixelartFillPixel(data, x, y, pixelSize, reducedColor, width, height);
+            }
+        }
+
+        if (this.gioPixelartIsGrayscale) {
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+            }
+        }
+
+        pixelatedCtx.putImageData(imageData, 0, 0);
+        return pixelatedCanvas;
+    }
+
+    gioPixelartDownloadImage(blob, fileName) {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+    }
+
+    gioPixelartHandleImageUpload(e) {
+        const file = e.target.files[0];
+        if (file) {
+            this.gioPixelartSelectedFileNameDisplay.textContent = file.name;
+            this.gioPixelartLoadFileIntoOriginalImage(file);
+        } else {
+            this.gioPixelartSelectedFileNameDisplay.textContent = "No se ha seleccionado archivo";
+        }
+    }
+
+    gioPixelartHandlePaste(e) {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const blob = items[i].getAsFile();
+                this.gioPixelartLoadFileIntoOriginalImage(blob, "Pegado desde el portapapeles");
+                break;
+            }
+        }
+    }
+
+    gioPixelartHandleDragOver(e) {
+        e.preventDefault();
+        this.gioPixelartDropZone.classList.add('dragover');
+    }
+
+    gioPixelartHandleDragLeave(e) {
+        e.preventDefault();
+        this.gioPixelartDropZone.classList.remove('dragover');
+    }
+
+    gioPixelartHandleDrop(e) {
+        e.preventDefault();
+        this.gioPixelartDropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+            this.gioPixelartLoadFileIntoOriginalImage(files[0], files[0].name);
+        }
+    }
+
+    gioPixelartHandleWindowDrop(e) {
+        e.preventDefault();
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+            this.gioPixelartLoadFileIntoOriginalImage(files[0], files[0].name);
+        }
+    }
+
+    gioPixelartLoadFileIntoOriginalImage(file, fileName = "Archivo cargado") {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            this.gioPixelartOriginalImage.onload = () => {
+                this.gioPixelartApplyResolution(fileName);
+            }
+            this.gioPixelartOriginalImage.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+    }
+
+    gioPixelartApplyResolution(fileName = this.gioPixelartSelectedFileNameDisplay.textContent) {
+        if (!this.gioPixelartOriginalImage.src) {
+            return;
+        }
+
+        let resolucion = parseInt(this.gioPixelartImageResolutionInput.value);
+        if (isNaN(resolucion) || resolucion <= 0) {
+            resolucion = 512;
+            this.gioPixelartImageResolutionInput.value = 512;
+        }
+
+        this.gioPixelartCanvas2.width = resolucion;
+        this.gioPixelartCanvas2.height = resolucion;
+        this.gioPixelartCtx2.clearRect(0, 0, this.gioPixelartCanvas2.width, this.gioPixelartCanvas2.height);
+        this.gioPixelartCtx2.drawImage(this.gioPixelartOriginalImage, 0, 0, this.gioPixelartCanvas2.width, this.gioPixelartCanvas2.height);
+
+        this.gioPixelartProcessedImage.onload = () => {
+            this.gioPixelartCanvas.width = this.gioPixelartProcessedImage.width;
+            this.gioPixelartCanvas.height = this.gioPixelartProcessedImage.height;
+            this.gioPixelartUpdateEffect();
+            this.gioPixelartSelectedFileNameDisplay.textContent = fileName;
+        }
+        this.gioPixelartProcessedImage.src = this.gioPixelartCanvas2.toDataURL();
+    }
+
+    gioPixelartUpdateEffect() {
+        this.gioPixelartPixelSizeValue.textContent = this.gioPixelartPixelSizeSlider.value;
+        this.gioPixelartColorReductionValue.textContent = this.gioPixelartColorReductionSlider.value;
+        if (this.gioPixelartProcessedImage.src) {
+            this.gioPixelartApplyPixelEffect();
+        }
+    }
+
+    gioPixelartApplyPixelEffect() {
+        if (!this.gioPixelartProcessedImage.src) return;
+
+        this.gioPixelartCtx.clearRect(0, 0, this.gioPixelartCanvas.width, this.gioPixelartCanvas.height);
+        this.gioPixelartCtx.drawImage(this.gioPixelartProcessedImage, 0, 0);
+
+        const pixelSize = parseInt(this.gioPixelartPixelSizeSlider.value);
+        const colorReduction = parseInt(this.gioPixelartColorReductionSlider.value);
+        const width = this.gioPixelartCanvas.width;
+        const height = this.gioPixelartCanvas.height;
+
+        const imageData = this.gioPixelartCtx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+
+        // Aplicar efecto pixel por pixel
+        for (let y = 0; y < height; y += pixelSize) {
+            for (let x = 0; x < width; x += pixelSize) {
+                const pixelColor = this.gioPixelartGetAverageColor(data, x, y, pixelSize, width, height);
+                const reducedColor = this.gioPixelartReduceColor(pixelColor, colorReduction);
+                this.gioPixelartFillPixel(data, x, y, pixelSize, reducedColor, width, height);
+            }
+        }
+
+        // Aplicar escala de grises si está activado
+        if (this.gioPixelartIsGrayscale) {
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                data[i] = gray;
+                data[i + 1] = gray;
+                data[i + 2] = gray;
+            }
+        }
+
+        this.gioPixelartCtx.putImageData(imageData, 0, 0);
+    }
+
+    gioPixelartGetAverageColor(data, startX, startY, pixelSize, width, height) {
+        let totalR = 0, totalG = 0, totalB = 0, totalA = 0;
+        let pixelCount = 0;
+
+        for (let y = startY; y < Math.min(startY + pixelSize, height); y++) {
+            for (let x = startX; x < Math.min(startX + pixelSize, width); x++) {
+                const index = (y * width + x) * 4;
+                totalR += data[index];
+                totalG += data[index + 1];
+                totalB += data[index + 2];
+                totalA += data[index + 3];
+                pixelCount++;
+            }
+        }
+
+        return {
+            r: Math.round(totalR / pixelCount),
+            g: Math.round(totalG / pixelCount),
+            b: Math.round(totalB / pixelCount),
+            a: Math.round(totalA / pixelCount)
+        };
+    }
+
+    gioPixelartReduceColor(color, levels) {
+        const factor = 255 / (levels - 1);
+        return {
+            r: Math.round(Math.round(color.r / factor) * factor),
+            g: Math.round(Math.round(color.g / factor) * factor),
+            b: Math.round(Math.round(color.b / factor) * factor),
+            a: color.a
+        };
+    }
+
+    gioPixelartFillPixel(data, startX, startY, pixelSize, color, width, height) {
+        for (let y = startY; y < Math.min(startY + pixelSize, height); y++) {
+            for (let x = startX; x < Math.min(startX + pixelSize, width); x++) {
+                const index = (y * width + x) * 4;
+                data[index] = color.r;
+                data[index + 1] = color.g;
+                data[index + 2] = color.b;
+                data[index + 3] = color.a;
+            }
+        }
+    }
+
+    gioPixelartToggleGrayscale() {
+        this.gioPixelartIsGrayscale = !this.gioPixelartIsGrayscale;
+        this.gioPixelartGrayscaleBtn.textContent = this.gioPixelartIsGrayscale ? 'Color' : 'Escala de grises';
+        this.gioPixelartGrayscaleBtn.classList.toggle('active', this.gioPixelartIsGrayscale);
+        this.gioPixelartUpdateEffect();
+    }
+
+ 
+    gioPixelartDownloadCurrentImage() {
+        if (!this.gioPixelartCanvas || !this.gioPixelartProcessedImage.src) {
+            alert('No hay imagen para descargar');
+            return;
+        }
+
+        this.gioPixelartCanvas.toBlob((blob) => {
+            const fileName = this.gioPixelartBaseFileNameInput.value.trim() || 'pixelart';
+            this.gioPixelartDownloadImage(blob, `${fileName}.png`);
+        }, 'image/png');
+    }
+    inicss(){
+ 
+    var linkElement = document.createElement('link');
+    linkElement.rel = 'stylesheet';
+    linkElement.href = 'https://fonts.googleapis.com/icon?family=Material+Icons';
+    document.head.appendChild(linkElement);
+
+ 
+    var styleElement = document.createElement('style');
+    styleElement.textContent = `
+        * {
+    
+        }
+
+        body {
+         
+        }
+
+       
+        .gioPixelart-main-container {
+            position: fixed;   
+            top: 10%;
+            left: 10%;             
+            width: 100%;
+            max-width: 1200px;
+            background-color: rgb(255, 255, 255);
+            height: 100%;
+             display: flex;
+	flex-direction: column;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+	align-content: space-evenly;
+        }
+
+        .gioPixelart-controls-panel {
+            grid-column: 1 / 2;
+            grid-row: 1 / 3;
+            padding-right: 20px;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .gioPixelart-canvas-area {
+            grid-column: 2 / 3;
+            grid-row: 1 / 3;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 400;
+            color: #424242;
+            font-size: 28px;
+            grid-column: 1 / 3;
+            margin-top: -10px;
+        }
+
+        .gioPixelart-section {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .gioPixelart-section-title {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            color: #616161;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .gioPixelart-section-title i {
+            margin-right: 10px;
+            font-size: 22px;
+        }
+
+        .gioPixelart-slider-container {
+            margin-bottom: 20px;
+        }
+
+        .gioPixelart-slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #616161;
+            font-size: 14px;
+        }
+
+        .gioPixelart-slider-value {
+            font-weight: 500;
+            color: #424242;
+        }
+
+        .gioPixelart-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 14px;
+            border-radius: 7px;
+            background: #e0e0e0;
+            outline: none;
+            transition: background 0.3s;
+        }
+
+        .gioPixelart-slider:hover {
+            background: #d0d0d0;
+        }
+
+        .gioPixelart-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #616161;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s;
+        }
+
+        .gioPixelart-slider::-webkit-slider-thumb:hover {
+            background: #424242;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+            transform: scale(1.1);
+        }
+
+        .gioPixelart-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #616161;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s;
+        }
+
+        .gioPixelart-slider::-moz-range-thumb:hover {
+            background: #424242;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+            transform: scale(1.1);
+        }
+
+        .gioPixelart-button {
+            width: 40px;
+            height: 40px;
+            background-color: #616161;
+            border: none;
+            cursor: pointer;
+            border-radius: 20%;
+            font-size: 6px;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            align-content: center;
+            color: white;
+        }
+
+        .gioPixelart-button:hover {
+            background-color: #424242;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .gioPixelart-button:active {
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            transform: translateY(0);
+        }
+
+        .gioPixelart-file-input-container {
+            position: relative;
+            margin: 0;
+            max-height: 70px;
+        }
+
+        .gioPixelart-file-input-label {
+            display: inline-block;
+            padding: 12px 20px;
+            background-color: #616161;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 14px;
+        }
+
+        .gioPixelart-file-input-label:hover {
+            background-color: #424242;
+        }
+
+        .gioPixelart-file-input {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .gioPixelart-file-name {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #616161;
+            text-align: center;
+        }
+
+        .gioPixelart-drop-zone {
+            border: 3px dashed #ccc;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            background-color: #f9f9f9;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+            cursor: pointer;
+        }
+
+        .gioPixelart-drop-zone.dragover {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+            color: #007bff;
+        }
+
+        .canvasPixelart {
+            border: 1px solid #e0e0e0;
+            margin: 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            height: auto;
+        }
+
+        #gioPixelart-canvas, #gioPixelart-canvas2 {
+            width: 300px;
+            height: 300px;
+        }
+
+        .gioPixelart-canvas-wrapper {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .gioPixelart-action-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .gioPixelart-input-group {
+            margin-bottom: 20px;
+        }
+
+        .gioPixelart-input-label {
+            display: block;
+            margin-bottom: 8px;
+            color: #616161;
+            font-size: 12px;
+        }
+
+        .gioPixelart-input-field {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #424242;
+            outline: none;
+            transition: all 0.3s;
+            background-color: white;
+        }
+
+        .gioPixelart-input-field:focus {
+            border-color: #9e9e9e;
+            box-shadow: 0 0 0 2px rgba(97, 97, 97, 0.2);
+        }
+
+        .gioPixelart-progress-container {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .gioPixelart-progress-label {
+            font-size: 14px;
+            color: #616161;
+            margin-bottom: 8px;
+        }
+
+        .gioPixelart-progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+
+        .gioPixelart-progress-fill {
+            height: 100%;
+            background-color: #616161;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .gioPixelart-progress-text {
+            font-size: 10px;
+            color: #616161;
+            text-align: center;
+        }
+        #idmenulateralpixelargio{
+            width: 130px;
+            background-color: #0000003b;
+            height: 600px;
+            border-radius: 14px;
+            position: fixed;
+            top: 50%;
+            left: 0%;
+            transform: translate(-0%,-50%);
+            z-index: 400;
+
+            padding:9px 9px 9px 9px;
+
+        }
+        .clfalodearartbtnesac{
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            align-content: center;
+        }
+        .minmagirnpixela{
+             margin-left: 2px;
+            margin-right: 2x;
+        }
+       .textpixeart{
+        font-size: 12px;
+       }
+    `;
+    document.head.appendChild(styleElement);
+    }
+
+    inihtmlpixelart(parentDiv){
+      
+    parentDiv.innerHTML = `
+        <div class="gioPixelart-main-container">
+            <div id="idmenulateralpixelargio">
+                <div class="gioPixelart-controls-panel">
+                    <div class="gioPixelart-section">
+                        <div class="gioPixelart-section-title"></div>
+                        <div class="gioPixelart-slider-container">
+                            <div class="gioPixelart-slider-label">
+                                <span class="textpixeart">Pixesize:</span>
+                                <span class="textpixeart gioPixelart-slider-value" id="gioPixelart-pixelSizeValue">17</span>
+                            </div>
+                            <input type="range" id="gioPixelart-pixelSize" min="1" max="20" value="17" class="gioPixelart-slider">
+                        </div>
+                        <div class="gioPixelart-slider-container">
+                            <div class="xelart-slider-labelgioPi">
+                                <span class="textpixeart">Reducción de Colores:</span>
+                                <span class="textpixeart gioPixelart-slider-value" id="gioPixelart-colorReductionValue">32</span>
+                            </div>
+                            <input type="range" id="gioPixelart-colorReduction" min="1" max="64" value="32" class="gioPixelart-slider">
+                        </div>
+                    </div>
+
+                    <div class="gioPixelart-section">
+                        <div class="gioPixelart-file-input-container">
+                            <label for="gioPixelart-folderInput" class="gioPixelart-file-input-label">
+                                <i class="material-icons" style="vertical-align: middle; margin-right: 5px;">folder_open</i>
+                            </label>
+                            <input type="file" class="gioPixelart-file-input" id="gioPixelart-folderInput" webkitdirectory directory multiple>
+                            <div class="gioPixelart-file-name" id="gioPixelart-selectedFolderName"></div>
+                        </div>
+
+                        <div class="gioPixelart-input-group">
+                            <input type="text" class="gioPixelart-input-field" id="gioPixelart-baseFileName" placeholder="name">
+                        </div>
+
+                        <div class="gioPixelart-input-group">
+                            <label class="gioPixelart-input-label" for="gioPixelart-imageResolution">new Res</label>
+                            <input type="number" class="gioPixelart-input-field" id="gioPixelart-imageResolution" value="1024" min="100" max="4090">
+                        </div>
+
+                        <div class="gioPixelart-progress-container" id="gioPixelart-progressContainer" style="display: none;">
+                            <div class="gioPixelart-progress-label">Procesando imágenes...</div>
+                            <div class="gioPixelart-progress-bar">
+                                <div class="gioPixelart-progress-fill" id="gioPixelart-progressFill"></div>
+                            </div>
+                            <div class="gioPixelart-progress-text" id="gioPixelart-progressText">0 / 0</div>
+                        </div>
+                    </div>
+
+                    <div class="gioPixelart-file-input-container">
+                        <label for="gioPixelart-imageInput" class="gioPixelart-file-input-label">
+                            <i class="material-icons textpixeart" style="vertical-align: middle; margin-right: 5px;">insert_photo</i>
+                            img
+                        </label>
+                        <input type="file" class="gioPixelart-file-input" id="gioPixelart-imageInput" accept="image/*">
+                        <div class="gioPixelart-file-name" id="gioPixelart-selectedFileName" style="display: none;"></div>
+                    </div>
+                    <div class="clfalodearartbtnesac">
+                        <button class="gioPixelart-button minmagirnpixela textpixeart" id="gioPixelart-processAllBtn">Foder</button>
+                        <button class="gioPixelart-button minmagirnpixela textpixeart" id="gioPixelart-grayscaleBtn">grey</button>
+                        <button class="gioPixelart-button minmagirnpixela textpixeart" id="gioPixelart-applyResolutionBtn">Resize</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="gioPixelart-canvas-area">
+                <div class="gioPixelart-canvas-wrapper">
+                    <div>
+                        <h3 class="textpixeart">Imagen Original/Redimensionada</h3>
+                        <canvas id="gioPixelart-canvas2" class="canvasPixelart"></canvas>
+                    </div>
+                    <div>
+                        <h3 class="textpixeart">Imagen Pixelada</h3>
+                        <canvas id="gioPixelart-canvas" class="canvasPixelart"></canvas>
+                    </div>
+                </div>
+                <div class="gioPixelart-section">
+                    <div class="gioPixelart-drop-zone" id="gioPixelart-dropZone">
+                        Arrastra una imagen aquí<br>o<br>Ctrl+V para pegar
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+     
+
+ parentDiv.style.display = 'flex';
+      parentDiv.style.flexDirection = 'row';
+        parentDiv.style.flexWrap = 'wrap';
+       parentDiv.style.justifyContent = 'center';
+        parentDiv.style.alignItems = 'center';
+     parentDiv.style.alignContent = 'center';
+
+        
+
+ 
+    }
+}
+
+ 
+document.addEventListener('DOMContentLoaded', () => {
+    const pixelartGenerator = new GioPixelartGenerator(document.getElementById("contenidapp"));
+    
+  
+    const downloadBtn = document.getElementById('gioPixelart-downloadBtn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => pixelartGenerator.gioPixelartDownloadCurrentImage());
+    }
+});
+
+ </script>
+ 
+    
+</body>
+
+</html>
